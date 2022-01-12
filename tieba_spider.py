@@ -3,6 +3,24 @@
 
 import codecs
 from pyquery import PyQuery as pq
+import re
+import requests
+from time import sleep
+
+
+def download_file(url):
+    local_filename = url.split('/')[-1]
+    # NOTE the stream=True parameter below
+    with requests.get(url, stream=True, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'}) as r:
+        r.raise_for_status()
+        with open(local_filename, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                # If you have chunk encoded response uncomment if
+                # and set chunk_size parameter to None.
+                # if chunk:
+                f.write(chunk)
+    sleep(1)
+    return local_filename
 
 def parseBr(doc):
     '''将网页中的<br>标签替换为换行符'''
@@ -14,8 +32,9 @@ def parseImg(doc):
 
 def _replaceImg(i,img):
     '''替换<img>标签的回调函数'''
-    imgObj=pq(img)
-    imgObj.replaceWith(r'![img]('+imgObj.attr('src')+')')
+    imgObj=pq(img) 
+    local_filename = download_file(imgObj.attr('src'))
+    imgObj.replaceWith(f'![](./{local_filename})')
 
 def fetchTieBaPage(url,file=None,minWords=0):
     '''抓取指定的百度贴吧帖子内容，如果指定file参数则可以输出到文件
@@ -42,22 +61,25 @@ def fetchTieBaPage(url,file=None,minWords=0):
     try:
         page=pq(url)
         doc=page.find('div.d_post_content')
+        author=page('a[alog-group="p_author"]').eq(0)
+        author_name=author.text()
+        author_link='https://tieba.baidu.com' + re.sub(r'\?t=.+&fr=.+', '', author.attr.href)
+        title=page('h3.core_title_txt').text()
+        f.write(f'# {title}\n\n')
+        f.write(f'*[@{author_name}]({author_link})*\n\n')
     except:
         print('错误：无法获取贴子[%s]的内容！'%(url))
+
     #循环读取每一个楼层的文本内容
-    for node in doc:
+    for index, node in enumerate(doc):
         p=pq(node)
         lenWords=len(p.text())
         parseText=parseImg(parseBr(p)).text().lstrip()
         if minWords is None or minWords<=0 or lenWords>minWords:
-            print(parseText)
             if f:
-                print('-'*80)
-                isDel=input('按回车键保留本段文字，其它键删除本段：')
-                print('='*80)
-                if not isDel:
-                    f.write(parseText)
-                    f.write('\n')
+                f.write(f'## {index + 1}楼\n\n')
+                f.write(parseText)
+                f.write('\n\n')
             else:
                 input('')
     #如果有下一页，则读取下一页的内容
@@ -78,4 +100,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
